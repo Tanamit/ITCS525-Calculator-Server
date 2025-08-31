@@ -5,8 +5,7 @@ from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 from asteval import Interpreter
 
-from calculator import expand_percent
-
+from models import CalculationResponse, Expression, CalculatorLog
 HISTORY_MAX = 1000
 history = deque(maxlen=HISTORY_MAX)
 
@@ -23,31 +22,33 @@ app.add_middleware(
 aeval = Interpreter(minimal=True, usersyms={"pi": math.pi, "e": math.e})
 
 
-@app.post("/calculate")
-def calculate(expr: str):
+@app.post("/calculate", response_model=CalculationResponse)
+def calculate(expr: Expression)-> CalculationResponse:
     try:
-        code = expand_percent(expr)
+        code = expr.expand_percent()
         result = aeval(code)
+        
         if aeval.error:
             msg = "; ".join(str(e.get_error()) for e in aeval.error)
             aeval.error.clear()
-            return {"ok": False, "expr": expr, "result": "", "error": msg}
+            return CalculationResponse(ok=False, expr=expr.expr, error=msg)
         # TODO: Add history
-        history_entry = {
-            "timestamp": datetime.now().isoformat(),
-            "expr": expr,
-            "result": result,
-            "ok": True
-        }
+        history_entry = CalculatorLog(
+            timestamp=datetime.utcnow().isoformat(),
+            expr=expr.expr,
+            result=result,
+            ok=True,
+            error=""
+        )
         history.append(history_entry)
-        return {"ok": True, "expr": expr, "result": result, "error": ""}
+        return CalculationResponse(ok=True, expr=expr.expr, result=result)
     except Exception as e:
-        return {"ok": False, "expr": expr, "error": str(e)}
+        return CalculationResponse(ok=False, expr=expr.expr, error=str(e))
 
 # TODO GET /hisory
 
-@app.get("/history")
-def get_history():
+@app.get("/history", response_model=list[CalculatorLog])
+def get_history() -> list[CalculatorLog]:
     """
     Get the calculation history.
     Returns a list of all calculations with timestamps.
@@ -56,8 +57,8 @@ def get_history():
 
 # TODO DELETE /history
 
-@app.delete("/history")
-def clear_history():
+@app.delete("/history", response_model=list[CalculatorLog])
+def clear_history() -> list[CalculatorLog]:
     """
     Clear all calculation history.
     """
